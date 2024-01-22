@@ -17,22 +17,22 @@ impl OpenAIThreadRequest {
 pub struct OpenAIMessageRequest {
     pub role: String,
     pub content: String,
-    pub file_ids: Option<Vec<String>>,
-    pub metadada: Option<HashMap<String, String>>,
+    pub file_ids: Vec<String>,
+    pub metadata: HashMap<String, String>,
 }
 
 impl OpenAIMessageRequest {
     pub fn new(
         role: String,
         content: String,
-        file_ids: Option<Vec<String>>,
-        metadada: Option<HashMap<String, String>>,
+        file_ids: Vec<String>,
+        metadata: HashMap<String, String>,
     ) -> Self {
         Self {
             role,
             content,
             file_ids,
-            metadada,
+            metadata,
         }
     }
 }
@@ -113,4 +113,31 @@ impl OpenAIRun {
             instructions,
         }
     }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct OpenAIRunResponse {
+    pub id: String,
+    pub object: String,
+    pub created_at: u64,
+    pub thread_id: String,
+    pub assistant_id: String,
+    pub status: String,
+    pub started_at: Option<u64>,
+    pub expiration_at: Option<u64>,
+    pub cancelled_at: Option<u64>,
+    pub failed_at: Option<u64>,
+    pub completed_at: Option<u64>,
+    pub last_error: Option<String>,
+    pub model: String,
+    pub instructions: Option<String>,
+    pub metadata: Option<HashMap<String, String>>,
+    pub file_ids: Vec<String>,
+    pub tools: Vec<OpenAIRunTool>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct OpenAIRunTool {
+    #[serde(rename = "type")]
+    pub tool_type: String,
 }
