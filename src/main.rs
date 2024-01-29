@@ -1,85 +1,33 @@
-use std::{collections::HashMap, error::Error};
-use std::{thread, time};
+use std::error::Error;
+use std::{io, thread, time};
 
-use crate::ai::OpenAIMessageRequest;
-use crate::ai::{OpenAIMessageResponse, OpenAIRun, OpenAIRunResponse};
+use crossterm::execute;
+use crossterm::{terminal::{enable_raw_mode, Clear, ClearType}};
 
 mod ai;
 mod util;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    let client = reqwest::Client::new();
-    let api_key = "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"; // Replace with your API key
 
-    let thread = client
-        .post("https://api.openai.com/v1/threads")
-        .header("Content-Type", "application/json")
-        .header("Authorization", format!("Bearer {}", api_key))
-        .header("OpenAI-Beta", "assistants=v1")
-        .send()
-        .await?;
+    
+    enable_raw_mode()?;
 
-    let thread = thread.json::<ai::OpenAIThread>().await.unwrap();
+    let mut stdout = io::stdout();
+    execute!(stdout, Clear(ClearType::All))?;
 
-    let thread_id = thread.id;
-    let message = OpenAIMessageRequest::new(
-        "user".to_string(),
-        "Generate rust code to read user inpunt from terminal until user input 'Q'".to_string(),
-        Vec::new(),
-        HashMap::new(),
-    );
+    let input = input();
 
-    let message_request = client
-        .post(format!(
-            "https://api.openai.com/v1/threads/{}/messages",
-            thread_id
-        ))
-        .header("Content-Type", "application/json")
-        .header("Authorization", format!("Bearer {}", api_key))
-        .header("OpenAI-Beta", "assistants=v1")
-        .json(&message)
-        .send()
-        .await?;
-
-    let _message_response = message_request
-        .json::<OpenAIMessageResponse>()
-        .await
-        .unwrap();
-
-    let run_message = OpenAIRun::new("asst_hqAXpyDJ4f9f9i3IFv0zne7d".to_string(), None);
-    let run_assistant = client
-        .post(format!(
-            "https://api.openai.com/v1/threads/{}/runs",
-            thread_id
-        ))
-        .header("Content-Type", "application/json")
-        .header("Authorization", format!("Bearer {}", api_key))
-        .header("OpenAI-Beta", "assistants=v1")
-        .json(&run_message)
-        .send()
-        .await?;
-
-    let run_response = run_assistant.json::<OpenAIRunResponse>().await.unwrap();
-
+    let thread = ai::create_thread().await?;
+    let thread_id = thread.as_str();
+    let _message = ai::send_message(thread_id, String::from("Hello")).await?;
+    let run_response = ai::run_assistant(thread_id).await?;
+    let run_id = run_response.id.as_str();
     let mut not_completed = true;
 
     while not_completed {
-        let status_request = client
-            .get(format!(
-                "https://api.openai.com/v1/threads/{}/runs/{}",
-                thread_id, run_response.id
-            ))
-            .header("Content-Type", "application/json")
-            .header("Authorization", format!("Bearer {}", api_key))
-            .header("OpenAI-Beta", "assistants=v1")
-            .send()
-            .await?;
+        let status_response = ai::get_assistant_status(thread_id, run_id).await?;
 
-        let status_response = status_request
-            .json::<ai::OpenAIRunResponse>()
-            .await
-            .unwrap();
         if status_response.status == "in_progress" {
             not_completed = true;
             thread::sleep(time::Duration::from_secs(1));
@@ -91,20 +39,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
     }
 
-    let response = client
-        .get(format!(
-            "https://api.openai.com/v1/threads/{}/messages",
-            thread_id
-        ))
-        .header("Content-Type", "application/json")
-        .header("Authorization", format!("Bearer {}", api_key))
-        .header("OpenAI-Beta", "assistants=v1")
-        .send()
-        .await?;
-
-    let response = response.json::<ai::OpenAIMessagesResponse>().await.unwrap();
+    let response = ai::get_assistant_messages(thread_id).await?;
     response
-        .data
         .iter()
         .filter(|message| message.role == "assistant")
         .for_each(|message| {
@@ -112,14 +48,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             println!("{:?}", code);
         });
 
-    let delete_response = client
-        .delete(format!("https://api.openai.com/v1/threads/{}", thread_id))
-        .header("Content-Type", "application/json")
-        .header("Authorization", format!("Bearer {}", api_key))
-        .header("OpenAI-Beta", "assistants=v1")
-        .send()
-        .await?;
-
+    let delete_response = ai::delete_thread(thread_id).await?;
     println!("{}", delete_response.text().await?);
     Ok(())
 }
