@@ -18,5 +18,5 @@ fn main() {
         ))
         .unwrap();
     let mut terminal = terminal::Terminal::new(open_ai, runtime).unwrap();
-    terminal.run();
+    let _ = terminal.run();
 }

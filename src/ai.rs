@@ -7,7 +7,6 @@ use self::model::{
 pub mod model;
 
 const API_KEY: &str = "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";
-const ASSISTANT_ID: &str = "asst_T9pmKDQnnONxBqtI9Yud2Onc";
 
 pub struct OpenAI {
     api_key: String,

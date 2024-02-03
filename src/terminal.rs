@@ -1,23 +1,21 @@
-use std::collections::HashMap;
 use std::error::Error;
-use std::io::{self, Stdout, Write};
+use std::io::{self, Write};
 use std::time::Duration;
 
-use crossterm::cursor::{position, MoveToColumn};
+use crossterm::cursor::{self, position, MoveToColumn};
 use crossterm::event::{
     poll, read, DisableBracketedPaste, DisableFocusChange, DisableMouseCapture,
     EnableBracketedPaste, EnableFocusChange, EnableMouseCapture, Event, KeyCode,
     KeyboardEnhancementFlags, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
 };
-use crossterm::terminal::{disable_raw_mode, enable_raw_mode, Clear, ClearType};
-use crossterm::{execute, queue};
-use tokio::runtime::{Builder, Runtime};
+use crossterm::terminal::{self, disable_raw_mode, enable_raw_mode, Clear, ClearType};
+use crossterm::{execute, queue, style};
+use tokio::runtime::Runtime;
 
 use crate::ai::OpenAI;
 use crate::util::extract_code_block;
 
 pub struct Terminal {
-    stdout: Stdout,
     open_ai: OpenAI,
     runtime: Runtime,
 }
@@ -49,11 +47,7 @@ impl Terminal {
             EnableMouseCapture,
         )?;
 
-        Ok(Self {
-            stdout,
-            open_ai,
-            runtime,
-        })
+        Ok(Self { open_ai, runtime })
     }
 
     pub fn run(&mut self) -> Result<(), Box<dyn Error>> {
@@ -102,7 +96,7 @@ impl Terminal {
             DisableMouseCapture
         )?;
 
-        disable_raw_mode();
+        let _ = disable_raw_mode();
         Ok(())
     }
 
@@ -165,7 +159,7 @@ impl Terminal {
     }
 
     fn suggest_completions(&mut self, input: &str) -> Vec<String> {
-        let message = self
+        let _message = self
             .runtime
             .block_on(self.open_ai.send_message(input.to_string()))
             .unwrap();
