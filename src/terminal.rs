@@ -98,6 +98,8 @@ impl Terminal {
         )?;
 
         let _ = disable_raw_mode();
+        let open_ai = self.open_ai.clone();
+        self.runtime.block_on(open_ai.delete_thread())?;
         Ok(())
     }
 

@@ -6,8 +6,6 @@ use self::model::{
 
 pub mod model;
 
-const API_KEY: &str = "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";
-
 pub struct OpenAI {
     api_key: String,
     assistant_id: String,
@@ -31,7 +29,7 @@ impl Clone for OpenAI {
 impl OpenAI {
     pub async fn from(api_key: String, assistant_id: String) -> Result<Self, Box<dyn Error>> {
         let client = reqwest::Client::new();
-        let thread_id = create_thread(&client).await?;
+        let thread_id = create_thread(&api_key, &client).await?;
         Ok(Self {
             api_key,
             assistant_id,
@@ -59,7 +57,7 @@ impl OpenAI {
                 self.thread_id
             ))
             .header("Content-Type", "application/json")
-            .header("Authorization", format!("Bearer {}", API_KEY))
+            .header("Authorization", format!("Bearer {}", self.api_key))
             .header("OpenAI-Beta", "assistants=v1")
             .json(&message)
             .send()
@@ -74,7 +72,7 @@ impl OpenAI {
     }
 
     pub async fn run_assistant(&mut self) -> Result<model::OpenAIRunResponse, Box<dyn Error>> {
-        let run_message = OpenAIRun::new("asst_hqAXpyDJ4f9f9i3IFv0zne7d".to_string(), None);
+        let run_message = OpenAIRun::new(self.assistant_id.clone(), None);
         let run_assistant = self
             .client
             .post(format!(
@@ -82,13 +80,13 @@ impl OpenAI {
                 self.thread_id
             ))
             .header("Content-Type", "application/json")
-            .header("Authorization", format!("Bearer {}", API_KEY))
+            .header("Authorization", format!("Bearer {}", self.api_key))
             .header("OpenAI-Beta", "assistants=v1")
             .json(&run_message)
             .send()
             .await?;
 
-        let run_response = run_assistant.json::<OpenAIRunResponse>().await.unwrap();
+        let run_response = run_assistant.json::<OpenAIRunResponse>().await?;
         self.run_id = Some(run_response.id.clone());
         Ok(run_response)
     }
@@ -102,7 +100,7 @@ impl OpenAI {
                 self.run_id.as_ref().unwrap()
             ))
             .header("Content-Type", "application/json")
-            .header("Authorization", format!("Bearer {}", API_KEY))
+            .header("Authorization", format!("Bearer {}", self.api_key))
             .header("OpenAI-Beta", "assistants=v1")
             .send()
             .await?;
@@ -123,7 +121,7 @@ impl OpenAI {
                 self.thread_id
             ))
             .header("Content-Type", "application/json")
-            .header("Authorization", format!("Bearer {}", API_KEY))
+            .header("Authorization", format!("Bearer {}", self.api_key))
             .header("OpenAI-Beta", "assistants=v1")
             .send()
             .await?;
@@ -146,7 +144,7 @@ impl OpenAI {
                 self.thread_id
             ))
             .header("Content-Type", "application/json")
-            .header("Authorization", format!("Bearer {}", API_KEY))
+            .header("Authorization", format!("Bearer {}", self.api_key))
             .header("OpenAI-Beta", "assistants=v1")
             .send()
             .await?;
@@ -174,7 +172,7 @@ impl OpenAI {
                 self.thread_id
             ))
             .header("Content-Type", "application/json")
-            .header("Authorization", format!("Bearer {}", API_KEY))
+            .header("Authorization", format!("Bearer {}", self.api_key))
             .header("OpenAI-Beta", "assistants=v1")
             .send()
             .await?;
@@ -184,16 +182,19 @@ impl OpenAI {
     }
 }
 
-async fn create_thread(client: &reqwest::Client) -> Result<String, Box<dyn Error>> {
+async fn create_thread(
+    api_key: &String,
+    client: &reqwest::Client,
+) -> Result<String, Box<dyn Error>> {
     let thread = client
         .post("https://api.openai.com/v1/threads")
         .header("Content-Type", "application/json")
-        .header("Authorization", format!("Bearer {}", API_KEY))
+        .header("Authorization", format!("Bearer {}", api_key))
         .header("OpenAI-Beta", "assistants=v1")
         .send()
         .await?;
 
-    let thread = thread.json::<OpenAIThread>().await.unwrap();
+    let thread = thread.json::<OpenAIThread>().await?;
 
     let thread_id = thread.id;
 
