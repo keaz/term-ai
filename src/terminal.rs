@@ -2,12 +2,13 @@ use std::error::Error;
 use std::io::{self, Write};
 use std::time::Duration;
 
-use crossterm::cursor::{self, position, MoveToColumn};
+use crossterm::cursor::{self, position, MoveDown, MoveToColumn};
 use crossterm::event::{
     poll, read, DisableBracketedPaste, DisableFocusChange, DisableMouseCapture,
     EnableBracketedPaste, EnableFocusChange, EnableMouseCapture, Event, KeyCode,
     KeyboardEnhancementFlags, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
 };
+use crossterm::style::{Attribute, Color, Print, SetAttribute, SetForegroundColor};
 use crossterm::terminal::{self, disable_raw_mode, enable_raw_mode, Clear, ClearType};
 use crossterm::{execute, queue, style};
 use tokio::runtime::Runtime;
@@ -104,7 +105,7 @@ impl Terminal {
         let mut stdout = io::stdout();
         execute!(stdout, MoveToColumn(0))?;
         execute!(stdout, Clear(ClearType::CurrentLine))?; // Clear current line
-        print!("{}", output);
+        execute!(stdout, Print(output))?;
         stdout.flush()?;
         Ok(())
     }
@@ -121,17 +122,16 @@ impl Terminal {
                         self.write_output(current_input.clone())?;
                         if char == ' ' {
                             let completions = self.suggest_completions(&current_input);
-                            println!("\nCompletions: {:?}", completions);
+                            self.display_completions(completions);
                         }
                     }
                     KeyCode::Esc => {
                         break;
                     }
                     KeyCode::Enter => {
-                        println!("\nExe39jcuting: {}", current_input);
+                        println!("\nExecuting: {}", current_input);
                         current_input.clear();
-                        let pos = position()?;
-                        println!("Current position: {:?}\r", pos);
+                        self.draw_hr_bar()?;
                     }
                     KeyCode::Backspace => {
                         current_input.pop();
@@ -140,17 +140,17 @@ impl Terminal {
                     _ => {}
                 },
                 Event::Mouse(mouse_event) => {
-                    println!("Mouse event: {:?}\r", mouse_event);
+                    //                println!("Mouse event: {:?}\r", mouse_event);
                 }
                 Event::Resize(x, y) => {
-                    let (original_size, new_size) = flush_resize_events((x, y));
-                    println!("Resize from: {:?}, to: {:?}\r", original_size, new_size);
+                    //                 let (original_size, new_size) = flush_resize_events((x, y));
+                    //                  println!("Resize from: {:?}, to: {:?}\r", original_size, new_size);
                 }
                 Event::Paste(paste_event) => {
-                    println!("Paste event: {:?}\r", paste_event);
+                    //                   println!("Paste event: {:?}\r", paste_event);
                 }
                 _ => {
-                    println!("Event: {:?}\r", event);
+                    //                   println!("Event: {:?}\r", event);
                 }
             }
         }
@@ -158,39 +158,101 @@ impl Terminal {
         Ok(())
     }
 
-    fn suggest_completions(&mut self, input: &str) -> Vec<String> {
-        let _message = self
+    fn display_completions(&self, completions: Result<Vec<String>, String>) -> io::Result<()> {
+        let mut stdout = io::stdout();
+        match completions {
+            Ok(completions) => {
+                if completions.is_empty() {
+                    return Ok(());
+                }
+                execute!(stdout, MoveDown(1))?;
+                execute!(stdout, MoveToColumn(0))?;
+                execute!(stdout, SetAttribute(Attribute::Dim))?;
+                for completion in completions {
+                    execute!(stdout, Print(format!("{} \t", completion)),)?;
+                }
+                execute!(stdout, SetAttribute(Attribute::Reset))?; // Reset the text attributes
+                execute!(stdout, MoveToColumn(0))?;
+                stdout.flush()?;
+                self.draw_hr_bar()?;
+            }
+            Err(e) => {
+                execute!(
+                    stdout,
+                    SetForegroundColor(Color::Red),
+                    Print("Command failed to execute:\n"),
+                    Print(format!("{}\n", e)),
+                    SetForegroundColor(Color::Reset) // Reset the color
+                )?;
+            }
+        }
+        Ok(())
+    }
+
+    fn suggest_completions(&mut self, input: &str) -> Result<Vec<String>, String> {
+        let message = self
             .runtime
-            .block_on(self.open_ai.send_message(input.to_string()))
-            .unwrap();
+            .block_on(self.open_ai.send_message(input.to_string()));
+        if message.is_err() {
+            return Err("Failed to send message to OpenAI".to_string());
+        }
 
         let mut open_ai = self.open_ai.clone();
-        self.runtime.block_on(open_ai.run_assistant()).unwrap();
+        let assistant_run = self.runtime.block_on(open_ai.run_assistant());
+        match assistant_run {
+            Ok(_) => {}
+            Err(e) => {
+                return Err(format!("Failed to run assistant: {:?}", e));
+            }
+        }
 
         let mut completed = false;
         while !completed {
-            let run = self
-                .runtime
-                .block_on(open_ai.get_assistant_status())
-                .unwrap();
-            completed = run.status == "completed";
+            let run = self.runtime.block_on(open_ai.get_assistant_status());
+
+            match run {
+                Ok(run) => {
+                    completed = run.status == "completed";
+                }
+                Err(e) => {
+                    return Err(format!("Failed to get assistant status: {:?}", e));
+                }
+            }
         }
 
-        let assistant_responses = self
-            .runtime
-            .block_on(open_ai.get_assistant_messages())
-            .unwrap();
+        let assistant_responses = self.runtime.block_on(open_ai.get_assistant_messages());
+
+        let assistant_responses = match assistant_responses {
+            Ok(assistant_responses) => assistant_responses,
+            Err(e) => return Err(format!("Failed to get assistant messages: {:?}", e)),
+        };
 
         self.open_ai = open_ai;
 
         if assistant_responses.is_empty() {
-            return vec![];
+            return Ok(vec![]);
         }
 
-        assistant_responses
+        let responses = assistant_responses
             .iter()
-            .map(|response| extract_code_block(response.content[0].text.value.as_str()).unwrap())
-            .collect()
+            .map(|response| extract_code_block(response.content[0].text.value.as_str()))
+            .filter(|response| response.is_ok())
+            .filter_map(|response| response.unwrap())
+            .collect();
+        Ok(responses)
+    }
+
+    fn draw_hr_bar(&self) -> io::Result<()> {
+        let mut stdout = io::stdout();
+        execute!(stdout, MoveToColumn(0))?;
+        execute!(stdout, Clear(ClearType::CurrentLine))?;
+        let (width, _) = terminal::size()?;
+        execute!(stdout, style::Print("-".repeat(width as usize)))?;
+        stdout.flush()?;
+        println!();
+        execute!(stdout, MoveToColumn(0))?;
+        stdout.flush()?;
+        Ok(())
     }
 }
 
